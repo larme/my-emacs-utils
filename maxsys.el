@@ -131,6 +131,40 @@
      ,@(maxsys/mk-modules-helper entries)
      (reverse *maxsys/modules*)))
 
+;;; transformer
+
+(defun maxsys/-module->pattrmap (module)
+  "convert a module's parameters to a map for max's pattr system"
+  (setq default-param-scriptname-func
+	(or (alist-get :default-param-scriptname-func module)
+	    (lambda (param) (alist-get :name param))))
+  (let ((params (alist-get :params module)))
+    (seq-map
+     (lambda (param)
+       (let ((param-scriptname-func
+	      (or (alist-get :param-scriptname-func param)
+		  default-param-scriptname-func)))
+	 (cons (funcall param-scriptname-func param)
+	       param)))
+     params)))
+
+(defun maxsys/modules->pattrmap (modules)
+  "convert modules to a map for max's pattr system
+
+Parameters and modules are identified by their scriptname, which
+by default are their names but this behavior can be customized by
+supplying individual functions"
+  (seq-map
+   (lambda (module)
+     (let* ((module-scriptname-func
+	     (or (alist-get :module-scriptname-func module)
+		 (lambda (module)
+		   (alist-get :name module))))
+	    (module-scriptname (funcall module-scriptname-func module))
+	    (params-map (maxsys/-module->pattrmap module)))
+       (cons module-scriptname params-map)))
+   modules))
+
 ;;; file writers
 
 (defun maxsys/-parameter->variable-line (param &optional prefix)
