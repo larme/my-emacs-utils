@@ -16,4 +16,12 @@
   "convert keyword to string without the first colon"
   (substring (symbol-name kw) 1))
 
+(defun zsy/make-keyword (s)
+  "convert string to keyword, no need to provide the colon"
+  (intern (concat ":" s)))
+
+(defun zsy/write-string-to-file (s filename &optional append)
+  "simplify the `write-region' function for writing string to file"
+  (write-region s nil filename append))
+
 (provide 'zsy)
