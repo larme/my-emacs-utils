@@ -11,6 +11,9 @@
 (defvar *maxsys/module-id-counter* -1)
 (defvar *maxsys/modules* nil)
 
+(defvar *maxsys/parameter-ctrl-mappings* nil)
+(defvar *maxsys/parameter-ctrl-mapping-modules* nil)
+
 ;;; parameter part
 
 (defun maxsys/make-parameter (name min max default &rest rest-args)
@@ -37,16 +40,20 @@
 	  (cons (append p (reverse rest-alist))
 		*maxsys/parameters*))))
 
-(defun maxsys/make-parameters (form)
+(defun maxsys/make-parameters (form &optional make-param-func)
   "handling multiple parameters list"
-  (let ((tag (car form)))
+  (let ((make-param-func (or make-param-func
+			     'maxsys/make-parameter))
+	(tag (car form)))
     (if (consp tag)
 	(dolist (subform form)
-	  (apply 'maxsys/make-parameter subform))
-      (apply 'maxsys/make-parameter form))))
+	  (apply make-param-func subform))
+      (apply make-param-func form))))
 
-(defun maxsys/mk-params-helper (entries)
-  (let (params-form)
+(defun maxsys/mk-params-helper (entries &optional make-param-func)
+  (let ((make-param-func (or make-param-func
+			     'maxsys/make-parameter))
+	(params-form nil))
     (dolist (entry entries params-form)
       (let (to-cons-form)
 	;; entry can be in `(:name ...)' raw parameter form
@@ -61,7 +68,7 @@
 		      entry)))
 	  (setq to-cons-form entry))
 	(setq params-form
-	      (cons `(maxsys/make-parameters ,to-cons-form)
+	      (cons `(maxsys/make-parameters ,to-cons-form (quote ,make-param-func))
 		    params-form))))
     (reverse params-form)))
 
@@ -97,16 +104,20 @@
 	  (cons (append p (reverse rest-alist))
 		*maxsys/modules*))))
 
-(defun maxsys/make-modules (form)
+(defun maxsys/make-modules (form &optional make-module-func)
   "handling multiple module list"
-  (let ((tag (car form)))
+  (let ((make-module-func (or make-module-func
+			      'maxsys/make-module))
+	(tag (car form)))
     (if (consp tag)
 	(dolist (subform form)
-	  (apply 'maxsys/make-module subform))
-      (apply 'maxsys/make-module form))))
+	  (apply make-module-func subform))
+      (apply make-module-func form))))
 
-(defun maxsys/mk-modules-helper (entries)
-  (let (modules-form)
+(defun maxsys/mk-modules-helper (entries &optional make-module-func)
+  (let ((make-module-func (or make-module-func
+			      'maxsys/make-module))
+	(modules-form nil))
     (dolist (entry entries modules-form)
       (let (to-cons-form)
 	;; entry can be in `(:name ...)' raw parameter form
@@ -121,7 +132,7 @@
 		      entry)))
 	  (setq to-cons-form entry))
 	(setq modules-form
-	      (cons `(maxsys/make-modules ,to-cons-form)
+	      (cons `(maxsys/make-modules ,to-cons-form (quote ,make-module-func))
 		    modules-form))))
     (reverse modules-form)))
 
@@ -130,6 +141,41 @@
 	 (*maxsys/modules* nil))
      ,@(maxsys/mk-modules-helper entries)
      (reverse *maxsys/modules*)))
+
+;;; controller <-> parameter part
+;;; controller module can be defined just using maxsys/make-modules
+(defun maxsys/make-parameter-ctrl-mapping (param-name
+					   ctrl-module-name
+					   ctrl-id
+					   mapping-mode
+					   &rest rest-args)
+  (let ((mapping (list
+		  (cons :param-name param-name)
+		  (cons :ctrl-module-name ctrl-module-name)
+		  (cons :ctrl-id ctrl-id)
+		  (cons :mapping-mode mapping-mode)))
+	(rest-alist (zsy/plist->alist rest-args)))
+    (setq *maxsys/parameter-ctrl-mappings*
+	  (cons mapping *maxsys/parameter-ctrl-mappings*))))
+
+(defmacro maxsys/mk-parameter-ctrl-mappings (&rest entries)
+  `(let ((*maxsys/parameter-ctrl-mappings* nil))
+     ,@(maxsys/mk-params-helper entries 'maxsys/make-parameter-ctrl-mapping)
+     (reverse *maxsys/parameter-ctrl-mappings*)))
+
+(defun maxsys/make-parameter-ctrl-mapping-module (name mappings &rest rest-args)
+  (let ((p (list (cons :name name)
+		 (cons :type :parameter-ctrl-mapping-module)
+		 (cons :mappings mappings)))
+	(rest-alist (zsy/plist->alist rest-args)))
+    (setq *maxsys/parameter-ctrl-mapping-modules*
+	  (cons (append p (reverse rest-alist))
+		*maxsys/parameter-ctrl-mapping-modules*))))
+
+(defmacro maxsys/mk-parameter-ctrl-mapping-modules (&rest entries)
+  `(let ((*maxsys/parameter-ctrl-mapping-modules* nil))
+     ,@(maxsys/mk-modules-helper entries 'maxsys/make-parameter-ctrl-mapping-module)
+     (reverse *maxsys/parameter-ctrl-mapping-modules*)))
 
 ;;; transformer
 
