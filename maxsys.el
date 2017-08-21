@@ -1,3 +1,4 @@
+;;; -*- lexical-binding: t -*-
 ;;; define parameters of a max/msp system and export them to json files
 
 (require 'json)

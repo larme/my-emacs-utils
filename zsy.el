@@ -1,3 +1,4 @@
+;;; -*- lexical-binding: t -*-
 ;;; my common library
 
 (require 'seq)
