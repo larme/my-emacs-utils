@@ -11,6 +11,10 @@
 (defvar *maxsys/module-id-counter* -1)
 (defvar *maxsys/modules* nil)
 
+(defvar *maxsys/ctrl-module-id-counter* -1)
+(defvar *maxsys/ctrls* nil)
+(defvar *maxsys/ctrl-modules* nil)
+
 (defvar *maxsys/parameter-ctrl-mappings* nil)
 (defvar *maxsys/parameter-ctrl-mapping-modules* nil)
 
@@ -63,7 +67,8 @@
 	    (let ((param-name (car entry))
 		  (rest (cdr entry)))	      
 	      (setq to-cons-form
-		    (if (keywordp param-name)
+		    (if (or (keywordp param-name)
+			    (integerp param-name))
 			`(list ,@entry)
 		      entry)))
 	  (setq to-cons-form entry))
@@ -142,8 +147,45 @@
      ,@(maxsys/mk-modules-helper entries)
      (reverse *maxsys/modules*)))
 
+;;; controller modules
+(defun maxsys/make-ctrl (id min max &rest rest-args)
+  (let ((ctrl (list
+	       (cons :id id)
+	       (cons :min min)
+	       (cons :max max)))
+	(rest-alist (zsy/plist->alist rest-args)))
+    (setq *maxsys/ctrls*
+	  (cons ctrl *maxsys/ctrls*))))
+
+(defmacro maxsys/mk-ctrls (&rest entries)
+  `(let ((*maxsys/ctrls* nil))
+     ,@(maxsys/mk-params-helper entries 'maxsys/make-ctrl)
+     (reverse *maxsys/ctrls*)))
+
+(defun maxsys/make-ctrl-module (name ctrls &rest rest-args)
+  (setq *maxsys/ctrl-module-id-counter*
+	(let ((module-id (plist-get rest-args :id)))
+	  (if module-id
+	      module-id
+	    (+ *maxsys/ctrl-module-id-counter* 1))))
+  (let ((p (list (cons :id *maxsys/ctrl-module-id-counter*)
+		 (cons :name name)
+		 (cons :type :ctrl-module)
+		 (cons :ctrls ctrls)))
+	(rest-alist (zsy/plist->alist rest-args)))
+    ;; filter :id key
+    (setq rest-alist (assq-delete-all :id rest-alist))
+    (setq *maxsys/ctrl-modules*
+	  (cons (append p (reverse rest-alist))
+		*maxsys/ctrl-modules*))))
+
+(defmacro maxsys/mk-ctrl-modules (&rest entries)
+  `(let ((*maxsys/ctrl-module-id-counter* -1)
+	 (*maxsys/ctrl-modules* nil))
+     ,@(maxsys/mk-modules-helper entries 'maxsys/make-ctrl-module)
+     (reverse *maxsys/ctrl-modules*)))
+
 ;;; controller <-> parameter part
-;;; controller module can be defined just using maxsys/make-modules
 (defun maxsys/make-parameter-ctrl-mapping (param-name
 					   ctrl-module-name
 					   ctrl-id
