@@ -19,6 +19,16 @@
 (defvar *maxsys/parameter-ctrl-mappings* nil)
 (defvar *maxsys/parameter-ctrl-mapping-modules* nil)
 
+;;; general accessors of map
+(defun maxsys/-default-get-scriptname-func (m)
+  (or (alist-get :scriptname m)
+      (alist-get :name m)))
+
+(defun maxsys/get-scriptname (m)
+  (let ((scriptname-func (or (alist-get :scriptname-func m)
+			     #'maxsys/-default-get-scriptname-func)))
+    (funcall scriptname-func m)))
+
 ;;; parameter part
 
 (defun maxsys/make-parameter (name min max default &rest rest-args)
@@ -224,17 +234,11 @@
 
 (defun maxsys/-module->pattrmap (module)
   "convert a module's parameters to a map for max's pattr system"
-  (setq default-param-scriptname-func
-	(or (alist-get :default-param-scriptname-func module)
-	    (lambda (param) (alist-get :name param))))
   (let ((params (alist-get :params module)))
     (seq-map
      (lambda (param)
-       (let ((param-scriptname-func
-	      (or (alist-get :param-scriptname-func param)
-		  default-param-scriptname-func)))
-	 (cons (funcall param-scriptname-func param)
-	       param)))
+       (cons (maxsys/get-scriptname param)
+	     param))
      params)))
 
 (defun maxsys/modules->pattrmap (modules)
@@ -245,11 +249,7 @@ by default are their names but this behavior can be customized by
 supplying individual functions"
   (seq-map
    (lambda (module)
-     (let* ((module-scriptname-func
-	     (or (alist-get :module-scriptname-func module)
-		 (lambda (module)
-		   (alist-get :name module))))
-	    (module-scriptname (funcall module-scriptname-func module))
+     (let* ((module-scriptname (maxsys/get-scriptname module))
 	    (params-map (maxsys/-module->pattrmap module)))
        (cons module-scriptname params-map)))
    modules))
