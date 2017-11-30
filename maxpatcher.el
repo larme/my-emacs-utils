@@ -7,6 +7,12 @@
 (require 'zsy)
 (require 'eieio)
 
+(defconst maxpatcher/+special-box-maxclass+
+  (list :button :comment :dial :flonum :function
+	:message :multislider :number
+	:slider :toggle)
+  "some max objects have their own classes instead of `newclass'")
+
 (defvar maxpatcher/*patch-state*)
 
 (defvar maxpatcher/*fileversion* 1)
@@ -45,27 +51,51 @@
 
 (defclass maxpatcher/<box> ()
   ((id :initarg :id
-       :initform nil
-       :documentation "")))
-
+       :initform -1
+       :type integer
+       :documentation "object id, if ignored then use the auto inc box-counter")
+   (maxclass :initarg :maxclass
+	  :initform nil
+	  :documentation "object maxclass, flonum, zl etc.")
+   (text :initarg :text
+	 :initform ""
+	 :type string
+	 :documentation)))
 
 (defmethod initialize-instance :after ((box maxpatcher/<box>) &rest slots)
-  (unless (oref box :id)
+  (when (= -1 (oref box :id))
     (let ((new-id (maxpatcher/inc-box-id-counter maxpatcher/*patch-state*)))
       (oset box :id new-id))))
+
+(defgeneric maxpatcher/get-text (box)
+  "get box text")
+
+(defun maxpatcher/special-box-maxclass-p (class)
+  (memq class maxpatcher/+special-box-maxclass+))
+
+(defmethod maxpatcher/get-text ((box maxpatcher/<box>))
+  (let ((class (oref box :maxclass))
+	(text (oref box :text)))
+   (if (maxpatcher/special-box-maxclass-p class)
+       text
+     (concat (zsy/keyword-name class)
+	     " "
+	     text))))
 
 (setq o (make-instance maxpatcher/<box>))
 (oref o :id )
 
-(defmacro maxpatcher/with-patch (&rest body)
+(defmacro maxpatcher/with-canvas (&rest body)
   `(let ((maxpatcher/*patch-state* (make-instance 'maxpatcher/<patch-state>)))
      (unwind-protect
 	 (progn
 	   ,@body)
        (maxpatcher/clear-state maxpatcher/*patch-state*))))
 
-(maxpatcher/with-patch
+(maxpatcher/with-canvas
  (make-instance 'maxpatcher/<box>)
  (make-instance 'maxpatcher/<box>)
- (make-instance 'maxpatcher/<box>))
+ (setq myo
+       (make-instance 'maxpatcher/<box> :maxclass :fa)))
+(maxpatcher/get-text myo)
 (provide 'maxpatcher)
