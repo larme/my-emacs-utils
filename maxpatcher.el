@@ -7,13 +7,13 @@
 (require 'zsy)
 (require 'eieio)
 
-(defconst maxpatcher/+special-box-maxclass+
-  (list :button :comment :dial :flonum :function
+(defconst maxpatcher/+literal-maxclass+
+  (list :bpatcher :button :comment :dial :flonum :function
 	:message :multislider :number
 	:slider :toggle)
   "some max objects have their own classes instead of `newclass'")
 
-(defvar maxpatcher/*patch-state*)
+(defvar maxpatcher/*patch-state* nil)
 
 (defvar maxpatcher/*fileversion* 1)
 (defvar maxpatcher/*appversion* '((:major . 7)
@@ -21,6 +21,9 @@
 				  (:revision . 4)
 				  (:architecture . "x86")
 				  (:modernui . 1)))
+
+(defgeneric maxpatcher/to-alist (obj)
+  "convert a box or a patch into alist map")
 
 (defclass maxpatcher/<patch-state> ()
   ((box-id-counter :initarg :box-id-counter
@@ -49,14 +52,36 @@
 (defmethod maxpatcher/clear-state ((state maxpatcher/<patch-state>))
   state)
 
+(defgeneric maxpatcher/add-box (state box)
+  "add a box to patcher state")
+
+(defmethod maxpatcher/add-box ((state maxpatcher/<patch-state>) box)
+  (let ((box-id (oref box :id))
+	(state-id (oref state :box-id-counter)))
+    (when (> box-id state-id)
+      (oset state :box-id-counter box-id))
+    (object-add-to-list state :boxes box)))
+
+(defmethod maxpatcher/to-alist ((state maxpatcher/<patch-state>))
+  (let ((main-alist (list (cons :fileversion maxpatcher/*fileversion*)
+			  (cons :appversion maxpatcher/*appversion*)))
+	(boxes-alist (seq-map (lambda (box)
+				(list (cons :box
+					    (maxpatcher/to-alist box))))
+			      (oref state :boxes))))
+    (when boxes-alist
+      (setq main-alist (cons (cons :boxes boxes-alist)
+			     main-alist)))
+    (list (cons :patcher main-alist))))
+
 (defclass maxpatcher/<box> ()
   ((id :initarg :id
        :initform -1
        :type integer
        :documentation "object id, if ignored then use the auto inc box-counter")
    (maxclass :initarg :maxclass
-	  :initform nil
-	  :documentation "object maxclass, flonum, zl etc.")
+	     :initform nil
+	     :documentation "object maxclass, flonum, zl etc.")
    (text :initarg :text
 	 :initform ""
 	 :type string
@@ -70,20 +95,28 @@
 (defgeneric maxpatcher/get-text (box)
   "get box text")
 
-(defun maxpatcher/special-box-maxclass-p (class)
-  (memq class maxpatcher/+special-box-maxclass+))
+(defun maxpatcher/literal-maxclass-p (class)
+  (memq class maxpatcher/+literal-maxclass+))
 
 (defmethod maxpatcher/get-text ((box maxpatcher/<box>))
   (let ((class (oref box :maxclass))
 	(text (oref box :text)))
-   (if (maxpatcher/special-box-maxclass-p class)
-       text
-     (concat (zsy/keyword-name class)
-	     " "
-	     text))))
+    (if (maxpatcher/literal-maxclass-p class)
+	text
+      (concat (zsy/keyword-name class)
+	      " "
+	      text))))
 
-(setq o (make-instance maxpatcher/<box>))
-(oref o :id )
+(defmethod maxpatcher/to-alist ((box maxpatcher/<box>))
+  (let* ((id (oref box :id))
+	 (maxclass (oref box :maxclass))
+	 (maxclass-text (if (maxpatcher/literal-maxclass-p maxclass)
+			    (zsy/keyword-name maxclass)
+			  "newobj"))
+	 (text (maxpatcher/get-text box)))
+    (list (cons :id (format "obj-%d" id))
+	  (cons :maxclass maxclass-text)
+	  (cons :text text))))
 
 (defmacro maxpatcher/with-canvas (&rest body)
   `(let ((maxpatcher/*patch-state* (make-instance 'maxpatcher/<patch-state>)))
@@ -92,10 +125,17 @@
 	   ,@body)
        (maxpatcher/clear-state maxpatcher/*patch-state*))))
 
+;;; for testing now
 (maxpatcher/with-canvas
  (make-instance 'maxpatcher/<box>)
  (make-instance 'maxpatcher/<box>)
  (setq myo
-       (make-instance 'maxpatcher/<box> :maxclass :fa)))
-(maxpatcher/get-text myo)
+       (make-instance 'maxpatcher/<box> :maxclass :flonum))
+ (maxpatcher/add-box maxpatcher/*patch-state* myo)
+ (setq myo2
+       (make-instance 'maxpatcher/<box> :maxclass :number))
+ (maxpatcher/add-box maxpatcher/*patch-state* myo2)
+ (setq al (maxpatcher/to-alist maxpatcher/*patch-state*))
+ (setq my-patch maxpatcher/*patch-state*))
+
 (provide 'maxpatcher)
