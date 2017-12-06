@@ -22,6 +22,9 @@
 				  (:architecture . "x86")
 				  (:modernui . 1)))
 
+(defun maxpatcher/id->obj-str (id)
+  (format "obj-%d" id))
+
 (defgeneric maxpatcher/to-alist (obj)
   "convert a box or a patch into alist map")
 
@@ -62,15 +65,24 @@
       (oset state :box-id-counter box-id))
     (object-add-to-list state :boxes box)))
 
+(defgeneric maxpatcher/add-line (state line)
+  "add a line to patcher state")
+
+(defmethod maxpatcher/add-line ((state maxpatcher/<patch-state>) line)
+  (object-add-to-list state :lines line))
+
 (defmethod maxpatcher/to-alist ((state maxpatcher/<patch-state>))
   (let ((main-alist (list (cons :fileversion maxpatcher/*fileversion*)
 			  (cons :appversion maxpatcher/*appversion*)))
-	(boxes-alist (seq-map (lambda (box)
-				(list (cons :box
-					    (maxpatcher/to-alist box))))
-			      (oref state :boxes))))
+	(boxes-alist (seq-map 'maxpatcher/to-alist
+			      (oref state :boxes)))
+	(lines-alist (seq-map 'maxpatcher/to-alist
+			      (oref state :lines))))
     (when boxes-alist
       (setq main-alist (cons (cons :boxes boxes-alist)
+			     main-alist)))
+    (when lines-alist
+      (setq main-alist (cons (cons :lines lines-alist)
 			     main-alist)))
     (list (cons :patcher main-alist))))
 
@@ -114,9 +126,46 @@
 			    (zsy/keyword-name maxclass)
 			  "newobj"))
 	 (text (maxpatcher/get-text box)))
-    (list (cons :id (format "obj-%d" id))
-	  (cons :maxclass maxclass-text)
-	  (cons :text text))))
+    (list (cons :box
+		(list (cons :id (maxpatcher/id->obj-str id))
+		      (cons :maxclass maxclass-text)
+		      (cons :text text))))))
+
+(defclass maxpatcher/<line> ()
+  ((src-obj-id :initarg :src-obj-id
+	       :type integer
+	       :documentation "source object id")
+   (src-obj-outlet :initarg :src-obj-outlet
+		   :type integer
+		   :documentation "source object outlet")
+   (dest-obj-id :initarg :dest-obj-id
+		:type integer
+		:documentation "destination object id")
+   (dest-obj-inlet :initarg :dest-obj-inlet
+		   :type integer
+		   :documentation "destination object inlet")))
+
+(defmethod maxpatcher/to-alist ((line maxpatcher/<line>))
+  (with-slots (src-obj-id
+	       src-obj-outlet
+	       dest-obj-id
+	       dest-obj-inlet)
+      line
+    (list (cons :patchline
+		(list (cons :source
+			    (list (maxpatcher/id->obj-str src-obj-id)
+				  src-obj-outlet))
+		      (cons :destination
+			    (list (maxpatcher/id->obj-str dest-obj-id)
+				  dest-obj-inlet)))))))
+
+(defun maxpatcher/connect (src-obj-id src-obj-outlet dest-obj-id dest-obj-inlet)
+  (let ((line (make-instance 'maxpatcher/<line>
+			     :src-obj-id src-obj-id
+			     :src-obj-outlet src-obj-outlet
+			     :dest-obj-id dest-obj-id
+			     :dest-obj-inlet dest-obj-inlet)))
+    (maxpatcher/add-line maxpatcher/*patch-state* line)))
 
 (defmacro maxpatcher/with-canvas (&rest body)
   `(let ((maxpatcher/*patch-state* (make-instance 'maxpatcher/<patch-state>)))
@@ -135,7 +184,13 @@
  (setq myo2
        (make-instance 'maxpatcher/<box> :maxclass :number))
  (maxpatcher/add-box maxpatcher/*patch-state* myo2)
+ (maxpatcher/connect 3 0 4 0)
  (setq al (maxpatcher/to-alist maxpatcher/*patch-state*))
  (setq my-patch maxpatcher/*patch-state*))
+
+(let ((json-encoding-pretty-print t))
+  (zsy/write-string-to-file 
+   (json-encode (maxpatcher/to-alist my-patch))
+   "~/test.maxpat"))
 
 (provide 'maxpatcher)
