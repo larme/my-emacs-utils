@@ -61,8 +61,10 @@
 (defmethod maxpatcher/add-box ((state maxpatcher/<patch-state>) box)
   (let ((box-id (oref box :id))
 	(state-id (oref state :box-id-counter)))
-    (when (> box-id state-id)
-      (oset state :box-id-counter box-id))
+    (if (> box-id state-id)
+	(oset state :box-id-counter box-id)
+      (let ((new-id (maxpatcher/inc-box-id-counter state)))
+	(oset box :id new-id)))
     (object-add-to-list state :boxes box)))
 
 (defgeneric maxpatcher/add-line (state line)
@@ -99,11 +101,6 @@
 	 :type string
 	 :documentation)))
 
-(defmethod initialize-instance :after ((box maxpatcher/<box>) &rest slots)
-  (when (= -1 (oref box :id))
-    (let ((new-id (maxpatcher/inc-box-id-counter maxpatcher/*patch-state*)))
-      (oset box :id new-id))))
-
 (defgeneric maxpatcher/get-text (box)
   "get box text")
 
@@ -132,39 +129,41 @@
 		      (cons :text text))))))
 
 (defclass maxpatcher/<line> ()
-  ((src-obj-id :initarg :src-obj-id
-	       :type integer
-	       :documentation "source object id")
-   (src-obj-outlet :initarg :src-obj-outlet
+  ((src-box :initarg :src-box
+	    :type maxpatcher/<box>
+	    :documentation "source object")
+   (src-box-outlet :initarg :src-box-outlet
 		   :type integer
 		   :documentation "source object outlet")
-   (dest-obj-id :initarg :dest-obj-id
-		:type integer
-		:documentation "destination object id")
-   (dest-obj-inlet :initarg :dest-obj-inlet
+   (dest-box :initarg :dest-box
+	     :type maxpatcher/<box>
+	     :documentation "destination object id")
+   (dest-box-inlet :initarg :dest-box-inlet
 		   :type integer
 		   :documentation "destination object inlet")))
 
 (defmethod maxpatcher/to-alist ((line maxpatcher/<line>))
-  (with-slots (src-obj-id
-	       src-obj-outlet
-	       dest-obj-id
-	       dest-obj-inlet)
+  (with-slots (src-box
+	       src-box-outlet
+	       dest-box
+	       dest-box-inlet)
       line
-    (list (cons :patchline
-		(list (cons :source
-			    (list (maxpatcher/id->obj-str src-obj-id)
-				  src-obj-outlet))
-		      (cons :destination
-			    (list (maxpatcher/id->obj-str dest-obj-id)
-				  dest-obj-inlet)))))))
+    (let ((src-box-id (oref src-box :id))
+	  (dest-box-id (oref dest-box :id)))
+      (list (cons :patchline
+		  (list (cons :source
+			      (list (maxpatcher/id->obj-str src-box-id)
+				    src-box-outlet))
+			(cons :destination
+			      (list (maxpatcher/id->obj-str dest-box-id)
+				    dest-box-inlet))))))))
 
-(defun maxpatcher/connect (src-obj-id src-obj-outlet dest-obj-id dest-obj-inlet)
+(defun maxpatcher/connect (src src-box-outlet dest dest-box-inlet)
   (let ((line (make-instance 'maxpatcher/<line>
-			     :src-obj-id src-obj-id
-			     :src-obj-outlet src-obj-outlet
-			     :dest-obj-id dest-obj-id
-			     :dest-obj-inlet dest-obj-inlet)))
+			     :src-box src
+			     :src-box-outlet src-box-outlet
+			     :dest-box dest
+			     :dest-box-inlet dest-box-inlet)))
     (maxpatcher/add-line maxpatcher/*patch-state* line)))
 
 (defmacro maxpatcher/with-canvas (&rest body)
@@ -176,21 +175,27 @@
 
 ;;; for testing now
 (maxpatcher/with-canvas
- (make-instance 'maxpatcher/<box>)
- (make-instance 'maxpatcher/<box>)
+ ;;(make-instance 'maxpatcher/<box>)
+ ;;(make-instance 'maxpatcher/<box>)
  (setq myo
        (make-instance 'maxpatcher/<box> :maxclass :flonum))
  (maxpatcher/add-box maxpatcher/*patch-state* myo)
  (setq myo2
-       (make-instance 'maxpatcher/<box> :maxclass :number))
+       (make-instance 'maxpatcher/<box> :maxclass :number :id 0))
+ (message (format "%d" (oref myo2 :id)))
  (maxpatcher/add-box maxpatcher/*patch-state* myo2)
- (maxpatcher/connect 3 0 4 0)
- (setq al (maxpatcher/to-alist maxpatcher/*patch-state*))
- (setq my-patch maxpatcher/*patch-state*))
+ (message (format "%d" (oref myo2 :id)))
+ (maxpatcher/connect myo 0 myo2 0)
+ ;;(setq al (maxpatcher/to-alist maxpatcher/*patch-state*))
+ (setq my-patch maxpatcher/*patch-state*)
+ (message (format "%s" my-patch))
+ )
 
 (let ((json-encoding-pretty-print t))
   (zsy/write-string-to-file 
    (json-encode (maxpatcher/to-alist my-patch))
    "~/test.maxpat"))
+
+(format "%s" my-patch)
 
 (provide 'maxpatcher)
