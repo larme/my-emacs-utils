@@ -4,6 +4,7 @@
 
 (require 'ert)
 (require 'my-gptel-utils)
+(require 'gptel-openai)
 
 (ert-deftest my/-gptel-ask-test-provider-registration-replaces-by-name ()
   (let ((my/-gptel-ask-context-providers nil))
@@ -194,6 +195,128 @@
                          (list source))))
       (kill-buffer source)
       (kill-buffer chat))))
+
+(ert-deftest my/-gptel-ask-test-selected-region-stays-with-question ()
+  (let* ((source (generate-new-buffer " *my-gptel-region-source*"))
+         (manual (generate-new-buffer " *my-gptel-region-manual*"))
+         (gptel-model 'test-model)
+         (gptel-backend (gptel--make-openai :name "test" :models '(test-model)))
+         (gptel-context '(global-context))
+         (gptel-context-string-function #'gptel-context--string)
+         (chat (generate-new-buffer
+                (my/-gptel-ask-buffer-name gptel-model source)))
+         (transient-mark-mode t)
+         (use-empty-active-region nil)
+         (turn 0)
+         serialized expected-messages)
+    (unwind-protect
+        (progn
+          (with-current-buffer source
+            (insert "before\n" (propertize "chosen α\nand β" 'face 'bold)
+                    "\nafter\n"))
+          (with-current-buffer manual (insert "manual context"))
+          (with-current-buffer chat
+            (text-mode)
+            (setq-local gptel-mode t)
+            (setq-local gptel-system-prompt nil)
+            (setq-local gptel-context (list manual))
+            ;; A chat created before reloading may still have the old hook.
+            (setq-local gptel-prompt-transform-functions
+                        '(my/-gptel-ask-prepare-context t)))
+          (cl-letf (((symbol-function 'gptel--sanitize-model) #'ignore)
+                    ((symbol-function 'read-string)
+                     (lambda (&rest _)
+                       (with-current-buffer source (deactivate-mark))
+                       (format "Question %d" turn)))
+                    ((symbol-function 'display-buffer) #'ignore)
+                    ((symbol-function 'gptel-send)
+                     (lambda (&rest _)
+                       (setq serialized
+                             (map-nested-elt
+                              (gptel-fsm-info
+                               (gptel-request nil :dry-run t
+                                 :transforms gptel-prompt-transform-functions))
+                              '(:data :messages)))
+                       (insert gptel-response-separator
+                               (gptel-response-prefix-string)
+                               (propertize (format "Answer %d" turn)
+                                           'gptel 'response
+                                           'front-sticky '(gptel)))
+                       (my/-gptel-ask-request-finished))))
+            (dolist (selection '("chosen α\nand β" "before" nil ""))
+              (cl-incf turn)
+              (with-current-buffer source
+                (goto-char (point-min))
+                (when selection
+                  (search-forward selection)
+                  ;; Exercise a reversed selection too.
+                  (push-mark (point) t t)
+                  (backward-char (length selection)))
+                (should (eq (my/gptel-ask-buffer 'source-only) chat)))
+              (setq expected-messages
+                    (append
+                     expected-messages
+                     (list
+                      (list :role "user" :content
+                            (concat
+                             (when (and selection
+                                        (not (string-empty-p selection)))
+                               (concat "selected region:\n\n```\n"
+                                       selection "\n```\n\n"))
+                             (format "Question %d" turn))))))
+              (let ((context
+                     (gptel-context--string
+                      (gptel-context--collect (list source manual)))))
+                (should
+                 (equal serialized
+                        (vconcat (list (list :role "system" :content context))
+                                 expected-messages))))
+              (setq expected-messages
+                    (append expected-messages
+                            (list (list :role "assistant" :content
+                                        (format "Answer %d" turn)))))
+              (should (equal (buffer-local-value 'gptel-context chat)
+                             (list source manual)))
+              (should (equal gptel-context '(global-context)))
+              (should (eq gptel-context-string-function
+                          #'gptel-context--string)))))
+      (kill-buffer source)
+      (kill-buffer manual)
+      (kill-buffer chat))))
+
+(ert-deftest my/-gptel-ask-test-selected-region-rolled-back-on-send-error ()
+  (let ((source (generate-new-buffer " *my-gptel-region-source*")))
+    (unwind-protect
+        (with-temp-buffer
+          (insert "Existing conversation")
+          (setq-local gptel-context nil)
+          (setq-local my/-gptel-ask-base-context (list source))
+          (setq-local my/-gptel-ask-collection-generation 1)
+          (setq-local my/-gptel-ask-request-active t)
+          (let ((prompt-start (copy-marker (point-max)))
+                (request
+                 (my/-gptel-ask-make-context-request
+                  :source-buffer source
+                  :source-point (with-current-buffer source (point-marker))
+                  :profile 'source-only :project-root default-directory
+                  :generation 1))
+                attempted)
+            (my/-gptel-ask-append-question "New question" "selected text")
+            (cl-letf (((symbol-function 'gptel-send)
+                       (lambda (&rest _)
+                         (setq attempted
+                               (buffer-substring-no-properties
+                                prompt-start (point-max)))
+                         (error "Mock send failure"))))
+              (my/-gptel-ask-send-after-context
+               (current-buffer) request prompt-start))
+            (should (string-suffix-p
+                     "selected region:\n\n```\nselected text\n```\n\nNew question"
+                     attempted))
+            (should (equal (buffer-string) "Existing conversation"))
+            (should-not my/-gptel-ask-request-active)
+            (should-not (marker-buffer prompt-start))))
+      (kill-buffer source))))
 
 (ert-deftest my/-gptel-ask-test-timeout-keeps-completed-provider-results ()
   (let ((source (generate-new-buffer " *my-gptel-source*"))

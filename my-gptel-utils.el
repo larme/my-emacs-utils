@@ -1285,6 +1285,9 @@ When CALLEE is non-nil, collect callees; otherwise collect callers."
     (setq-local gptel-backend backend)
     (setq-local gptel-model model)
     (setq-local gptel-use-context 'system)
+    ;; Remove the former selection-context hook from chats reused after reload.
+    (remove-hook 'gptel-prompt-transform-functions
+                 'my/-gptel-ask-prepare-context t)
     (add-hook 'gptel-post-response-functions
               #'my/-gptel-ask-request-finished nil t)
     (add-hook 'kill-buffer-hook #'my/-gptel-ask-cancel-collection nil t)))
@@ -1324,11 +1327,16 @@ When CALLEE is non-nil, collect callees; otherwise collect callers."
                     (buffer-substring-no-properties
                      (- (point) (length prefix)) (point)))))))
 
-(defun my/-gptel-ask-append-question (question)
-  "Append QUESTION as a new prompt in the current gptel question buffer."
+(defun my/-gptel-ask-append-question (question &optional selected-region)
+  "Append QUESTION as a new prompt in the current gptel question buffer.
+
+When SELECTED-REGION is non-nil, insert it in a fenced block before
+QUESTION so the selection remains part of this conversation turn."
   (goto-char (point-max))
   (unless (my/-gptel-ask-prompt-ready-p)
     (insert gptel-response-separator (gptel-prompt-prefix-string)))
+  (when selected-region
+    (insert "selected region:\n\n```\n" selected-region "\n```\n\n"))
   (insert question))
 
 (defun my/-gptel-ask-rollback-question (question-buffer prompt-start)
@@ -1402,6 +1410,11 @@ buffer and continue its conversation.  The source buffer is included
 as live context through a buffer-local `gptel-context' in the chat, so
 global gptel context is left unchanged.
 
+An active region is captured before reading the question and inserted
+before it as a fenced block labeled \"selected region:\" in the chat.
+Each selection stays with its question in the conversation history.
+Without an active region, only the question is appended.
+
 PROFILE is one of `source-only', `smart', or `deep'.  Interactively,
 use `my/gptel-ask-default-profile'; with a prefix argument, use `deep'."
   (interactive
@@ -1414,6 +1427,9 @@ use `my/gptel-ask-default-profile'; with a prefix argument, use `deep'."
   (gptel--sanitize-model)
   (let* ((source-buffer (current-buffer))
          (source-point (point))
+         (selected-region
+          (when (use-region-p)
+            (buffer-substring-no-properties (region-beginning) (region-end))))
          (backend gptel-backend)
          (model gptel-model)
          (question-buffer-name
@@ -1452,7 +1468,7 @@ use `my/gptel-ask-default-profile'; with a prefix argument, use `deep'."
                    :profile profile
                    :project-root (my/-gptel-ask-project-root source-buffer)
                    :generation generation)))
-            (my/-gptel-ask-append-question question)
+            (my/-gptel-ask-append-question question selected-region)
             (setq my/-gptel-ask-request-active t)
             (message "Collecting %s context for %s..."
                      profile (buffer-name source-buffer))

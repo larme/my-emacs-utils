@@ -125,6 +125,25 @@ not sent.
 The question buffer is displayed with `gptel-display-buffer-action`. The
 source buffer is not modified by the answer.
 
+If a region is active when the command is invoked, its text is captured before
+the minibuffer prompt and inserted before the question in the chat:
+
+````text
+selected region:
+
+```
+<selected text>
+```
+
+<question>
+````
+
+Each selection is a snapshot saved with its question in conversation history.
+Later calls append a new selection and question without replacing earlier
+selections. With no active region, only the new question is appended. The
+whole source buffer and other collected context are still sent with each
+request; the selection is included in the user message.
+
 ## Collection profiles
 
 There are three profiles:
@@ -631,7 +650,7 @@ emacs --batch -Q -L . \
   my-gptel-utils.el my-gptel-utils-tests.el
 ```
 
-The current snapshot passes 11 ERT tests covering:
+The current snapshot passes 13 ERT tests covering:
 
 1. Provider replacement, ordering, and unregistration.
 2. Line-range normalization and merging.
@@ -644,6 +663,9 @@ The current snapshot passes 11 ERT tests covering:
 9. Immediate source-only collection and send.
 10. Preservation of completed results when another provider times out.
 11. Cache reuse and invalidation after the source revision changes.
+12. Selection capture before prompting, placement with each user question,
+    preservation in history, omission without a region, and context isolation.
+13. Rollback of the selection and question when sending fails.
 
 At the snapshot, byte compilation produced no warnings, `check-parens` and
 `checkdoc` passed, and whitespace checks were clean.
