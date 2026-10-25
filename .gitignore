@@ -1,0 +1,18 @@
+refs/
+
+# Compiled Emacs Lisp and generated autoloads
+*.elc
+*.eln
+*-autoloads.el
+
+# Emacs backup, auto-save, and lock files
+*~
+\#*\#
+.#*
+
+# Local dependency and build caches
+.cask/
+.eask/
+.eldev/
+.keg/
+eln-cache/
